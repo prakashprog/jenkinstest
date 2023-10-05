@@ -1,0 +1,129 @@
+pipeline {
+    agent any
+    stages {
+        stage ('View pom.xml') {
+            steps {
+                dir("${WORKSPACE}/${BUILD_NUMBER}"){
+        	        sh 'cat pom.xml'
+        	    }
+            }
+        }
+
+		stage('Execute Checkmarx Scan') { 
+			steps {
+				dir("${WORKSPACE}/${BUILD_NUMBER}"){
+					step([$class: 'CxScanBuilder', 
+						comment: '', 
+						credentialsId: '', 
+						excludeFolders: 'dockerimages,jenkins', 
+						excludeOpenSourceFolders: '', 
+						exclusionsSetting: 'job', 
+						failBuildOnNewResults: false, 
+						failBuildOnNewSeverity: 'HIGH', 
+						filterPattern: '''!**/_cvs/**/*, !**/.svn/**/*,   !**/.hg/**/*,   !**/.git/**/*,  !**/.bzr/**/*, !**/bin/**/*,
+								   !**/obj/**/*,  !**/backup/**/*, !**/.idea/**/*, !**/*.DS_Store, !**/*.ipr,     !**/*.iws,
+								   !**/*.bak,     !**/*.tmp,       !**/*.aac,      !**/*.aif,      !**/*.iff,     !**/*.m3u, !**/*.mid, !**/*.mp3,
+								   !**/*.mpa,     !**/*.ra,        !**/*.wav,      !**/*.wma,      !**/*.3g2,     !**/*.3gp, !**/*.asf, !**/*.asx,
+								   !**/*.avi,     !**/*.flv,       !**/*.mov,      !**/*.mp4,      !**/*.mpg,     !**/*.rm,  !**/*.swf, !**/*.vob,
+								   !**/*.wmv,     !**/*.bmp,       !**/*.gif,      !**/*.jpg,      !**/*.png,     !**/*.psd, !**/*.tif, !**/*.swf,
+								   !**/*.jar,     !**/*.zip,       !**/*.rar,      !**/*.exe,      !**/*.dll,     !**/*.pdb, !**/*.7z,  !**/*.gz,
+								   !**/*.tar.gz,  !**/*.tar,       !**/*.gz,       !**/*.ahtm,     !**/*.ahtml,   !**/*.fhtml, !**/*.hdm,
+								   !**/*.hdml,    !**/*.hsql,      !**/*.ht,       !**/*.hta,      !**/*.htc,     !**/*.htd, !**/*.war, !**/*.ear,
+								   !**/*.htmls,   !**/*.ihtml,     !**/*.mht,      !**/*.mhtm,     !**/*.mhtml,   !**/*.ssi, !**/*.stm,
+								   !**/*.stml,    !**/*.ttml,      !**/*.txn,      !**/*.xhtm,     !**/*.xhtml,   !**/*.class, !**/*.iml''', 
+						fullScanCycle: 10, 
+						generatePdfReport: true, 
+						generateXmlReport: false, 
+						groupId: '22222222-2222-448d-b029-989c9070eb23', 
+						highThreshold: 0, 
+						includeOpenSourceFolders: '', 
+						mediumThreshold: 0, 
+						osaArchiveIncludePatterns: '*.zip, *.war, *.ear, *.tgz', 
+						osaInstallBeforeScan: false, 
+						password: '{AQAAABAAAAAQCUep139c43ZykD4CLMXpgqjkyYq/tt9Gf5/LHReRcO4=}', 
+						preset: '100007', 
+						projectName: 'zio-base-api', 
+						sastEnabled: true, 
+						serverUrl: 'http://10.140.46.17/', 
+						sourceEncoding: '1', 
+						username: '', 
+						vulnerabilityThresholdEnabled: true, 
+						vulnerabilityThresholdResult: 'FAILURE', 
+						waitForResultsEnabled: true])
+				}
+			}
+	    }
+	}
+	post {
+        always {
+			echo "One way or another, build has finished"
+			/* cleanup current unwanted workspace contents */
+			dir("${WORKSPACE}/${BUILD_NUMBER}"){
+        	        sh 'rm -rf $(ls -I "Checkmarx")'
+        	}
+			/* cleanup tmp directory */
+            dir("${WORKSPACE}/${BUILD_NUMBER}@tmp") {
+                deleteDir()
+            }
+		}
+		failure {
+                echo "${GIT_BRANCH}"
+                script {
+                    if( GIT_BRANCH == "origin/develop" ){
+                        icon = "❌"
+                        mail to: "ashima.adya@zafin.com",
+                        subject: "${icon} Jenkins Build Alert: ${currentBuild.fullDisplayName} failed",
+                        mimeType: "text/html",
+                        body: """
+                            <html>
+                            <body>
+                            <style>
+                            table{
+                                border: 1px solid black;
+                                border-collapse: collapse;
+                                background-color: #D3FCFB;
+                            }
+
+                            th, td {
+                                border: 1px solid black;
+                                padding: 5px;
+                                text-align: left;
+                                }
+
+                            th, td#t01{
+                                border: 1px solid black;
+                                padding: 5px;
+                                text-align: left;
+                                }
+                            </style>
+                            <h3><b><i>Build Alert Summary</i></b></h3>
+                            <table style="width:100%">
+                              <tr>
+                                <td id="t01" style="background-color:#2890C8;"><b>BUILD STATUS</b></td>
+                                <td id="t01"><font color="red"><b>${currentBuild.result}</b></font></td>
+                              </tr>
+                              <tr>
+                                <td style="background-color:#2890C8;"><b>PROJECT NAME</b></td>
+                                <td>${env.JOB_NAME}</td>
+                              </tr>
+                              <tr>
+                                <td style="background-color:#2890C8;"><b>BUILD NUMBER</b></td>
+                                <td>${env.BUILD_NUMBER}</td>
+                              </tr>
+                               <tr>
+                                <td style="background-color:#2890C8;"><b>BUILD LOGS</b></td>
+                                <td><a href="${env.BUILD_URL}">Click here to view build #${env.BUILD_ID} logs on Jenkins</a></td>
+                              </tr>
+                              <tr>
+                                <td style="background-color:#2890C8;"><b>BUILD LOGS (BLUE OCEAN)</b></td>
+                                <td><a href="${env.RUN_DISPLAY_URL}">Click here to view build #${env.BUILD_ID} logs (Blue Ocean) on Jenkins</a></td>
+                              </tr>
+                            </table>
+                            </body>
+                            </html>
+                            """
+                    }
+                }
+        }
+    }
+}
