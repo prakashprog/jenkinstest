@@ -1,161 +1,32 @@
-def server = Artifactory.server 'ARTIFACTORY_SERVER'
-
 pipeline {
-  agent {
-      label "jenkins-jdk17-dind-slave"
-  }
-  environment {
-    LOCAL_MAVEN_CACHE = "/home/mavencache/.m222/${env.JOB_NAME}-${env.BUILD_NUMBER}"
-    JAVA_HOME = "/usr/lib/jvm/jdk-17.0.7+7"
-    SNAPSHOT_REPO_URL = "https://ci-jdk11.zafinworks.com/artifactory/libs-snapshot-local"
-  }
+	agent any
 
-    stages {
+	environment {
+		mavenHome = tool 'jenkins-maven'
+	}
 
-                stage('check build environment') {
-                    steps {
-                        sh '''
-                            pwd
-                            alternatives --set java /usr/lib/jvm/jdk-17.0.7+7/bin/java
-                            java -version
-                            which java
-                            mvn -v
-                            docker --version
-                        '''    
-                    }
-                }
+	tools {
+		jdk 'java-17'
+	}
 
-                stage('build') {
-                        steps {
-                            script { configFileProvider([configFile(fileId: 'bcd89c90-c128-4ef9-8df9-843a21967196', variable: 'SETTINGS_JDK11_IN_AZURE')]) {
-                                    try {
-                            sh '''
-                                    mkdir -p ${LOCAL_MAVEN_CACHE}
-                                    mvn -version  -Dmaven.repo.local=${LOCAL_MAVEN_CACHE} -gs $SETTINGS_JDK11_IN_AZURE
-                                                            mvn clean install -e -B -DskipTests=true -DskipValidation=true -Dmaven.repo.local=${LOCAL_MAVEN_CACHE} -gs $SETTINGS_JDK11_IN_AZURE
-                            '''    
-                                            } catch(err) {
-                                                echo "PIPELINE_ERROR - ${err}"
-                                                if (currentBuild.result == 'UNSTABLE')
-                                                    currentBuild.result = 'FAILURE'
-                                                throw err
-                                            }
-                                    }
-                                }
-                            }
-                    }
+	stages {
 
-        stage('deploy') {
-             steps {
-                 script { configFileProvider([configFile(fileId: 'bcd89c90-c128-4ef9-8df9-843a21967196', variable: 'SETTINGS_JDK11_IN_AZURE')]) {
-                         try {
+		stage('Build'){
+			steps {
+				bat "mvn clean install -DskipTests"
+			}
+		}
 
-                             rtMavenRun (
-                                    tool: 'maven-3.8.6',
-                                    pom: '${WORKSPACE}/pom.xml',
-                                    goals: '-e -B -DskipITs=true -DskipTests=true -Dmaven.repo.local=${LOCAL_MAVEN_CACHE} -DaltDeploymentRepository=snapshots::default::${SNAPSHOT_REPO_URL} -gs $SETTINGS_JDK11_IN_AZURE clean deploy' ,
-                                    )
+		stage('Test'){
+			steps{
+				bat "mvn test"
+			}
+		}
 
-                             rtPublishBuildInfo (
-                                     serverId: "JAVA11_ARTIFACTORY_SERVER"
-                                    )
-
-                             xrayScan (
-                                         serverId: "JAVA11_ARTIFACTORY_SERVER",
-                                         failBuild: false
-                                    )
-
-                             } catch(err) {
-                                echo "PIPELINE_ERROR - ${err}"
-                                 if (currentBuild.result == 'UNSTABLE')
-                                     currentBuild.result = 'FAILURE'
-                                 throw err
-                             }
-                     }
-                 }
-             }
-         }
-   }
-   post {
-        always {
-
-            echo "One way or another, build has finished"
-            /* cleanup tmp directory */
-            dir("${workspace}@tmp") {
-                deleteDir()
-            }
-            /* cleanup maven cache */
-            dir("${LOCAL_MAVEN_CACHE}"){
-                deleteDir()
-            }
-            echo "Current Build Result: $currentBuild.result"
-            dir("${WORKSPACE}"){
-                step([$class: 'ConsoleLogToWorkspaceBuildStep',
-                        blockOnAllOutput: true,
-                        fileName: '${JOB_BASE_NAME}_${BUILD_NUMBER}.log',
-                        writeConsoleLog: true])
-            sh 'ls -latr ${WORKSPACE}'
-            zip zipFile: 'pipeline-log.zip', archive: true, glob: 'build*.log', dir: ''
-            }
-
-            /* cleanup workspace */
-            deleteDir()
-        }
-        failure {
-                echo "${GIT_BRANCH}"
-                script {
-                    if( GIT_BRANCH == "origin/develop" ){
-                        icon = "âŒ"
-                        mail to: "ashima.adya@zafin.com",
-                        subject: "${icon} Jenkins Build Alert: ${currentBuild.fullDisplayName} failed",
-                        mimeType: "text/html",
-                        body: """
-                            <html>
-                            <body>
-                            <style>
-                            table{
-                                border: 1px solid black;
-                                border-collapse: collapse;
-                                background-color: #D3FCFB;
-                            }
-
-                            th, td {
-                                border: 1px solid black;
-                                padding: 5px;
-                                text-align: left;
-                                }
-
-                            th, td#t01{
-                                border: 1px solid black;
-                                padding: 5px;
-                                text-align: left;
-                                }
-                            </style>
-                            <h3><b><i>Build Alert Summary</i></b></h3>
-                            <table style="width:100%">
-                              <tr>
-                                <td id="t01" style="background-color:#2890C8;"><b>BUILD STATUS</b></td>
-                                <td id="t01"><font color="red"><b>${currentBuild.result}</b></font></td>
-                              </tr>
-                              <tr>
-                                <td style="background-color:#2890C8;"><b>PROJECT NAME</b></td>
-                                <td>${env.JOB_NAME}</td>
-                              </tr>
-                              <tr>
-                                <td style="background-color:#2890C8;"><b>BUILD NUMBER</b></td>
-                                <td>${env.BUILD_NUMBER}</td>
-                              </tr>
-                               <tr>
-                                <td style="background-color:#2890C8;"><b>BUILD LOGS</b></td>
-                                <td><a href="${env.BUILD_URL}">Click here for build #${env.BUILD_ID} logs on Jenkins</a></td>
-                              </tr>
-                            </table>
-                            </body>
-                            </html>
-                            """
-                    }
-                }
-        }
-    }
-
+		stage('Deploy') {
+			steps {
+			    bat "mvn jar:jar deploy:deploy"
+			}
+		}
+	}
 }
