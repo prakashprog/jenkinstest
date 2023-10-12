@@ -14,7 +14,7 @@ pipeline {
 		stage('Build'){
 			steps {
 
-				bat "C:\maven\apache-maven-3.8.7\bin\mvn clean install -DskipTests"
+				bat "mvn clean install -DskipTests"
 			}
 		}
 
